@@ -93,6 +93,3 @@ echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | python3 pentest_server.p
 4. Update the catalog entry with the new tool name
 5. Rebuild the Docker image
 
-## Tool Details
-
-### nmap_scan
