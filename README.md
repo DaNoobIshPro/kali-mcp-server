@@ -20,13 +20,8 @@ Unauthorized security testing is illegal. This tool is for:
 
 ### Current Implementation
 
-- **`scan_summary`** - Quick host discovery to verify target is reachable
-- **`nmap_scan`** - Network port scanning with quick/full/stealth/service modes
-- **`nikto_scan`** - Web server vulnerability scanning
-- **`sqlmap_test`** - SQL injection vulnerability testing (use with caution)
-- **`wpscan_check`** - WordPress-specific vulnerability scanning
-- **`dirb_directories`** - Hidden directory and file discovery
-- **`searchsploit_lookup`** - Search ExploitDB for known vulnerabilities
+- **`discover_hosts`** - Finds live hosts using nmap ping scan (`-sn`)
+- **`host_details`** - Scans a host for open ports and service details (`-sV -sC`)
 
 ## Prerequisites
 
@@ -44,13 +39,9 @@ See the step-by-step instructions provided with the files.
 
 In Claude Desktop, you can ask:
 
-- "Run a quick nmap scan on 192.168.1.1"
-- "Check 192.168.1.100 for open ports"
-- "Scan mywebsite.local with nikto on port 8080"
-- "Search exploitdb for apache vulnerabilities"
-- "Run dirb on http://testsite.local to find hidden directories"
-- "Check if http://testsite.local/login.php is vulnerable to SQL injection"
-- "Scan my WordPress site at http://myblog.local for vulnerable plugins"
+- "Discover hosts in 192.168.1.0/24"
+- "Run host details on 192.168.1.100"
+- "Run host details on scanme.nmap.org using all ports"
 
 ## Architecture
 ```
@@ -79,17 +70,16 @@ export SCAN_TIMEOUT=300
 export MAX_OUTPUT_LENGTH=10000
 
 # Run directly
-python3 pentest_server.py
+python3 kali_server.py
 
 # Test MCP protocol
-echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | python3 pentest_server.py
+echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | python3 kali_server.py
 ```
 
 ### Adding New Tools
 
 1. Install the tool in the Dockerfile
-2. Add the function to `pentest_server.py`
+2. Add the function to `kali_server.py`
 3. Decorate with `@mcp.tool()`
 4. Update the catalog entry with the new tool name
 5. Rebuild the Docker image
-

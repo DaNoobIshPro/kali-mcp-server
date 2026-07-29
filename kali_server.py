@@ -1,171 +1,137 @@
-@mcp.tool()
-async def ettercap_scan_hosts(interface: str = "eth0", target: str = "") -> str:
-    """Scan network for active hosts using ettercap - specify network interface and optional target range."""
-    logger.info(f"ettercap_scan_hosts called with interface={interface}, target={target}")
-    
-    if not interface.strip():
-        return "❌ Error: Network interface is required"
-    
-    # Validate interface name
-    if not re.match(r'^[a-zA-Z0-9]+$', interface):
-        return "❌ Error: Invalid interface name format"
-    
-    # Build command
-    cmd = ["ettercap", "-T", "-i", interface]
-    
-    if target.strip():
-        target, error = sanitize_target(target)
-        if error:
-            return f"❌ Error: {error}"
-        cmd.extend(["-M", "arp:remote", f"/{target}/"])
-    else:
-        # Just scan for hosts
-        cmd.extend(["-P", "list"])
-    
-    output, returncode = run_command(cmd, timeout=120)
-    
-    return f"🌐 Ettercap host scan on {interface}\n\n📊 Results:\n{output}\n\n💡 Note: Use ettercap_arp_poison for MITM attacks (use responsibly)"
+import ipaddress
+import logging
+import os
+import re
+import subprocess
 
-@mcp.tool()
-async def ettercap_arp_poison(interface: str = "eth0", target1: str = "", target2: str = "") -> str:
-    """Perform ARP poisoning MITM attack - WARNING: This intercepts network traffic and should only be used with authorization."""
-    logger.info(f"ettercap_arp_poison called with interface={interface}, target1={target1}, target2={target2}")
-    
-    if not interface.strip():
-        return "❌ Error: Network interface is required"
-    
-    if not target1.strip() or not target2.strip():
-        return "❌ Error: Both target1 and target2 are required for ARP poisoning"
-    
-    # Validate interface
-    if not re.match(r'^[a-zA-Z0-9]+$', interface):
-        return "❌ Error: Invalid interface name format"
-    
-    # Validate targets
-    target1, error1 = sanitize_target(target1)
-    if error1:
-        return f"❌ Error in target1: {error1}"
-    
-    target2, error2 = sanitize_target(target2)
-    if error2:
-        return f"❌ Error in target2: {error2}"
-    
-    # Build command - text mode, ARP poisoning
-    cmd = [
-        "ettercap",
-        "-T",  # Text mode
-        "-q",  # Quiet mode
-        "-i", interface,
-        "-M", "arp:remote",  # ARP poisoning
-        f"/{target1}//",
-        f"/{target2}//"
-    ]
-    
-    return f"""⚠️ WARNING: ARP Poisoning Attack
-    
-This is a DESTRUCTIVE operation that will:
-- Intercept traffic between {target1} and {target2}
-- Modify ARP tables on target systems
-- Could disrupt network connectivity
+from mcp.server.fastmcp import FastMCP
 
-🔒 AUTHORIZATION REQUIRED
 
-To execute this attack, you must:
-1. Have written permission from network owner
-2. Be conducting authorized penetration testing
-3. Understand the legal implications
+SCAN_TIMEOUT = int(os.getenv("SCAN_TIMEOUT", "300"))
+MAX_OUTPUT_LENGTH = int(os.getenv("MAX_OUTPUT_LENGTH", "10000"))
 
-Command prepared but NOT executed for safety:
-{' '.join(cmd)}
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("kali-mcp-server")
 
-To manually execute (at your own risk and responsibility):
-docker exec -it <container_name> {' '.join(cmd)}
+mcp = FastMCP("kali-mcp-server")
 
-💡 Alternative: Use ettercap_scan_hosts for non-invasive reconnaissance
-"""
 
-@mcp.tool()
-async def ettercap_dns_spoof(interface: str = "eth0", target: str = "", domain: str = "", fake_ip: str = "") -> str:
-    """Configure DNS spoofing with ettercap - redirect domain queries to fake IP address."""
-    logger.info(f"ettercap_dns_spoof called with interface={interface}, target={target}, domain={domain}")
-    
-    if not all([interface.strip(), target.strip(), domain.strip(), fake_ip.strip()]):
-        return "❌ Error: All parameters required: interface, target, domain, fake_ip"
-    
-    # Validate inputs
-    if not re.match(r'^[a-zA-Z0-9]+$', interface):
-        return "❌ Error: Invalid interface name"
-    
-    target, error = sanitize_target(target)
-    if error:
-        return f"❌ Error in target: {error}"
-    
-    if not re.match(r'^[a-zA-Z0-9\.\-]+$', domain):
-        return "❌ Error: Invalid domain format"
-    
-    fake_ip_clean, error = sanitize_target(fake_ip)
-    if error:
-        return f"❌ Error in fake_ip: {error}"
-    
-    return f"""⚠️ WARNING: DNS Spoofing Configuration
+def _truncate_output(output: str) -> str:
+    if len(output) <= MAX_OUTPUT_LENGTH:
+        return output
+    return f"{output[:MAX_OUTPUT_LENGTH]}\n\n... (output truncated)"
 
-This attack will redirect DNS queries for {domain} to {fake_ip}
 
-🔒 AUTHORIZATION REQUIRED
+def sanitize_target(target: str) -> tuple[str, str | None]:
+    cleaned = target.strip()
+    if not cleaned:
+        return "", "Target is required"
 
-DNS spoofing setup requires:
-1. Create /tmp/etter.dns with: {domain} A {fake_ip}
-2. Configure ettercap to use the DNS plugin
-3. Start ARP poisoning
+    if len(cleaned) > 255:
+        return "", "Target is too long"
 
-Command sequence (NOT executed for safety):
-echo "{domain} A {fake_ip}" > /tmp/etter.dns
-ettercap -T -i {interface} -M arp:remote /{target}// -P dns_spoof
-
-This is NOT executed automatically. Manual execution required.
-
-💡 Use ettercap_scan_hosts for safe reconnaissance instead
-"""
-
-@mcp.tool()
-async def ettercap_packet_sniff(interface: str = "eth0", filter_type: str = "tcp", duration: str = "30") -> str:
-    """Sniff network packets using ettercap - specify interface, filter type (tcp/udp/icmp), and duration in seconds."""
-    logger.info(f"ettercap_packet_sniff called with interface={interface}, filter_type={filter_type}")
-    
-    if not interface.strip():
-        return "❌ Error: Network interface is required"
-    
-    # Validate interface
-    if not re.match(r'^[a-zA-Z0-9]+$', interface):
-        return "❌ Error: Invalid interface name"
-    
-    # Validate filter type
-    valid_filters = ["tcp", "udp", "icmp", "all"]
-    filter_type = filter_type.lower() if filter_type.lower() in valid_filters else "tcp"
-    
-    # Validate duration
     try:
-        duration_int = int(duration) if duration.strip() else 30
-        if duration_int < 1 or duration_int > 300:
-            return "❌ Error: Duration must be between 1 and 300 seconds"
+        if "/" in cleaned:
+            ipaddress.ip_network(cleaned, strict=False)
+            return cleaned, None
+        ipaddress.ip_address(cleaned)
+        return cleaned, None
     except ValueError:
-        return f"❌ Error: Invalid duration value: {duration}"
-    
-    return f"""⚠️ WARNING: Packet Sniffing Operation
+        pass
 
-This will capture network traffic on {interface} for {duration_int} seconds
+    if cleaned.startswith("-"):
+        return "", "Invalid target format"
 
-🔒 AUTHORIZATION REQUIRED
+    if ".." in cleaned:
+        return "", "Invalid target format"
 
-Packet sniffing is only legal when:
-- You own the network
-- You have written permission
-- You are conducting authorized testing
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,253}[A-Za-z0-9]$", cleaned):
+        return "", "Invalid target format"
 
-Command prepared (NOT executed for safety):
-timeout {duration_int} ettercap -T -i {interface} -q
+    return cleaned, None
 
-This requires manual execution with proper authorization.
 
-💡 Safer alternative: Use ettercap_scan_hosts for host discovery only
-"""
+def run_command(cmd: list[str], timeout: int) -> tuple[str, int]:
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return f"Command timed out after {timeout} seconds.", 124
+    except Exception as exc:  # pragma: no cover
+        return f"Failed to run command: {exc}", 1
+
+    output = (result.stdout or "").strip()
+    error = (result.stderr or "").strip()
+    combined = output if not error else f"{output}\n{error}".strip()
+
+    if not combined:
+        combined = "No output returned."
+
+    return _truncate_output(combined), result.returncode
+
+
+@mcp.tool()
+async def discover_hosts(target: str) -> str:
+    """Discover live hosts on a target IP, hostname, or CIDR range using nmap ping scan."""
+    logger.info("discover_hosts called with target=%s", target)
+
+    target_clean, error = sanitize_target(target)
+    if error:
+        return f"❌ Error: {error}"
+
+    cmd = ["nmap", "-sn", "-T4", "--max-retries", "2", target_clean]
+    output, returncode = run_command(cmd, timeout=min(SCAN_TIMEOUT, 120))
+
+    live_hosts = re.findall(r"^Nmap scan report for (.+)$", output, flags=re.MULTILINE)
+
+    if returncode != 0 and not live_hosts:
+        return f"❌ Host discovery failed.\n\n{output}"
+
+    if not live_hosts:
+        return f"✅ Host discovery completed for {target_clean}.\n\nNo live hosts were found.\n\nRaw output:\n{output}"
+
+    host_lines = "\n".join(f"- {host}" for host in live_hosts)
+    return (
+        f"✅ Host discovery completed for {target_clean}.\n\n"
+        f"Live hosts found ({len(live_hosts)}):\n{host_lines}\n\n"
+        f"Raw output:\n{output}"
+    )
+
+
+@mcp.tool()
+async def host_details(target: str, ports: str = "top-100") -> str:
+    """Get open ports and service details for a host using nmap service and default script scan."""
+    logger.info("host_details called with target=%s ports=%s", target, ports)
+
+    target_clean, error = sanitize_target(target)
+    if error:
+        return f"❌ Error: {error}"
+
+    cmd = ["nmap", "-sV", "-sC", "-T4", "--open"]
+    ports_clean = ports.strip().lower()
+
+    if ports_clean == "top-100":
+        cmd.extend(["--top-ports", "100"])
+    elif ports_clean == "all":
+        cmd.append("-p-")
+    elif re.match(r"^[0-9,\-]+$", ports_clean):
+        cmd.extend(["-p", ports_clean])
+    else:
+        return "❌ Error: ports must be 'top-100', 'all', or a port list/range like '22,80,443' or '1-1024'"
+
+    cmd.append(target_clean)
+    output, returncode = run_command(cmd, timeout=SCAN_TIMEOUT)
+
+    if returncode != 0:
+        return f"❌ Host detail scan failed for {target_clean}.\n\n{output}"
+
+    return f"✅ Host details for {target_clean}:\n\n{output}"
+
+
+if __name__ == "__main__":
+    mcp.run()
